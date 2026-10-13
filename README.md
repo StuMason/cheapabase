@@ -44,12 +44,20 @@ docker compose up --build
 
 Open http://localhost:8000, sign up with any email (no confirmation needed), make a doc. Open a second browser (or a private window), sign up as someone else, share the doc with them from the first window and type in either one.
 
-Run the end-to-end tests (they use the real supabase-js client) against the running stack:
+## Tests
 
 ```bash
 bun install
-bun test
+bun run typecheck
+bun run test        # unit tests, no database needed
+
+# with the stack running (docker compose up):
+bun run test:e2e    # API tests with the real supabase-js: RLS, functions, realtime, presence
+npx playwright-core install chromium
+npm run test:ui     # two browser users share a doc and edit it live
 ```
+
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request, including a real `docker compose up --build`.
 
 ## Deploy to Railway
 
@@ -173,5 +181,5 @@ db/bootstrap.sql   roles + realtime schema, runs every boot (idempotent)
 db/migrations/     your schema, each file runs once
 functions/     your functions
 public/        the example docs app + realtime.js client
-test/          end-to-end tests using supabase-js
+test/          unit, end-to-end (supabase-js) and browser tests
 ```

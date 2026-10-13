@@ -25,9 +25,10 @@ export class RealtimeClient {
     const ws = (this.ws = new WebSocket(`${this.url}?token=${encodeURIComponent(token)}`));
     ws.onopen = () => {
       this.retry = 0;
-      // Restore state after a reconnect
+      // Subscriptions and joins are (re)sent from state on every open, never queued,
+      // so a reconnect restores them and nothing is sent twice.
       for (const [ref, s] of this.subs) this.raw({ type: "subscribe", ref, ...s.opts });
-      for (const ch of this.channels.values()) if (ch.joined) ch.rejoin();
+      for (const ch of this.channels.values()) if (ch.joined || ch.joinRef) ch.rejoin();
       for (const m of this.queue.splice(0)) ws.send(m);
     };
     ws.onmessage = (e) => this.handle(JSON.parse(e.data));
@@ -40,17 +41,17 @@ export class RealtimeClient {
     this.ping = setInterval(() => this.raw({ type: "ping" }), 25000);
   }
 
-  raw(msg) {
+  raw(msg, { queue = true } = {}) {
     const s = JSON.stringify(msg);
     if (this.ws.readyState === 1) this.ws.send(s);
-    else this.queue.push(s);
+    else if (queue) this.queue.push(s);
   }
 
-  request(msg) {
+  request(msg, opts) {
     const ref = msg.ref ?? `r${++this.n}`;
     return new Promise((resolve, reject) => {
       this.pending.set(ref, { resolve, reject });
-      this.raw({ ...msg, ref });
+      this.raw({ ...msg, ref }, opts);
     });
   }
 
@@ -71,7 +72,7 @@ export class RealtimeClient {
     const ref = `s${++this.n}`;
     const opts = { table, schema, event, filter };
     this.subs.set(ref, { opts, cb });
-    await this.request({ type: "subscribe", ref, ...opts });
+    await this.request({ type: "subscribe", ref, ...opts }, { queue: false });
     return () => {
       this.subs.delete(ref);
       this.raw({ type: "unsubscribe", ref });
@@ -112,17 +113,21 @@ class Channel {
   }
   async join() {
     this.client.channels.set(this.name, this);
+    this.joinRef = `j${++this.client.n}`;
     try {
-      await this.client.request({ type: "join", channel: this.name, presence: this.meta });
+      await this.client.request({ type: "join", ref: this.joinRef, channel: this.name, presence: this.meta }, { queue: false });
     } catch (e) {
       this.client.channels.delete(this.name);
       throw e;
+    } finally {
+      this.joinRef = null;
     }
     this.joined = true;
     return this;
   }
   rejoin() {
-    this.client.raw({ type: "join", channel: this.name, presence: this.meta });
+    // Reuse a pending join's ref so its promise still resolves.
+    this.client.raw({ type: "join", ref: this.joinRef ?? undefined, channel: this.name, presence: this.meta });
   }
   leave() {
     this.joined = false;

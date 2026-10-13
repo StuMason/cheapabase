@@ -2,7 +2,7 @@
 // Uses the real supabase-js client to prove compatibility.
 import { describe, expect, test, beforeAll } from "bun:test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { RealtimeClient } from "../public/realtime.js";
+import { RealtimeClient } from "../../public/realtime.js";
 
 const URL = process.env.CHEAPABASE_URL ?? "http://localhost:8000";
 let anonKey = "";

@@ -25,6 +25,11 @@ services:
       # Change this for anything real: openssl rand -hex 32
       JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-me-0123456789abcdef}
       PUBLIC_URL: http://localhost:8000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
     restart: unless-stopped
 
 volumes:

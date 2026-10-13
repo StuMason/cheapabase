@@ -13,8 +13,9 @@ import type { ServerWebSocket } from "bun";
 import { asUser, sql } from "./db";
 import { config } from "./config";
 import { verify, type Claims } from "./jwt";
+import { parseFilter, type Filter } from "./filter";
 
-type Sub = { schema: string; table: string; event: string; filter?: { column: string; value: string } };
+type Sub = { schema: string; table: string; event: string; filter?: Filter };
 export type SocketData = {
   claims: Claims;
   subs: Map<string, Sub>;
@@ -28,13 +29,6 @@ const channels = new Map<string, Set<WS>>();
 
 function send(ws: WS, msg: unknown) {
   ws.send(JSON.stringify(msg));
-}
-
-function parseFilter(f: unknown): Sub["filter"] | undefined | null {
-  if (f == null || f === "") return undefined;
-  // PostgREST style: "doc_id=eq.123". Only eq is supported, which covers most UI needs.
-  const m = typeof f === "string" ? /^([a-zA-Z_][a-zA-Z0-9_]*)=eq\.(.*)$/.exec(f) : null;
-  return m ? { column: m[1], value: m[2] } : null;
 }
 
 function claimsKey(c: Claims) {

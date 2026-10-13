@@ -58,7 +58,7 @@ async function main() {
   await startRealtime();
   const { anonKey } = await apiKeys(config.jwtSecret);
 
-  Bun.serve<SocketData, {}>({
+  Bun.serve<SocketData>({
     port: config.port,
     hostname: "0.0.0.0",
     async fetch(req, server) {

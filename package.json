@@ -6,10 +6,18 @@
   "scripts": {
     "start": "bun run server/index.ts",
     "keys": "bun run server/keys.ts",
-    "test": "bun test"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test test/unit",
+    "test:e2e": "bun test test/e2e",
+    "test:ui": "node test/ui/docs-app.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.57.4",
     "postgres": "3.4.7"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.0",
+    "playwright-core": "1.55.0",
+    "typescript": "5.9.3"
   }
 }
