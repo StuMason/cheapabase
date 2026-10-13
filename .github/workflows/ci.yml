@@ -97,6 +97,10 @@ jobs:
           tools: composer
       - if: matrix.name == 'fastapi'
         uses: astral-sh/setup-uv@v6
+        with:
+          # The example keeps `uv run` alive until the job ends, so the post-job cache
+          # prune would wait 5 minutes on its lock and fail the job.
+          enable-cache: false
       - if: matrix.name == 'rails'
         uses: ruby/setup-ruby@v1
         with:
