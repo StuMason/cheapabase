@@ -66,6 +66,10 @@ jobs:
             port: 3001
             install: npm ci && npm run build
             start: PORT=3001 npm start
+          - name: laravel
+            port: 3002
+            install: composer install --no-interaction --no-progress && cp .env.example .env && php artisan key:generate --no-interaction
+            start: PHP_CLI_SERVER_WORKERS=4 php artisan serve --host=127.0.0.1 --port=3002
           - name: fastapi
             port: 3003
             install: uv sync --frozen
