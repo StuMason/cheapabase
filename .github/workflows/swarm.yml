@@ -1,0 +1,18 @@
+# Manual load test: point a bot swarm at a deployed cursors room from a GitHub runner.
+name: swarm
+on:
+  workflow_dispatch:
+    inputs:
+      url: { description: "Target", default: "https://cursors.stumason.dev" }
+      bots: { description: "Bots", default: "100" }
+      seconds: { description: "Duration (s)", default: "60" }
+      ramp: { description: "Ramp-up (s)", default: "20" }
+jobs:
+  swarm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: ulimit -n 65536 && node scripts/swarm.mjs "${{ inputs.url }}" "${{ inputs.bots }}" "${{ inputs.seconds }}" "${{ inputs.ramp }}"

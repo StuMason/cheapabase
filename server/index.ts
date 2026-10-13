@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 import { config } from "./config";
 import { bootstrap, migrate } from "./db";
 import { startAuth, startPostgrest } from "./services";
-import { startRealtime, upgradeData, websocket, stats, type SocketData } from "./realtime";
+import { attach, startRealtime, upgradeData, websocket, stats, type SocketData } from "./realtime";
 import { handleFunction } from "./functions";
 import { apiKeys } from "./jwt";
 
@@ -71,7 +71,7 @@ async function main() {
   await startRealtime();
   const { anonKey } = await apiKeys(config.jwtSecret);
 
-  Bun.serve<SocketData>({
+  const server = Bun.serve<SocketData>({
     port: config.port,
     hostname: "0.0.0.0",
     async fetch(req, server) {
@@ -103,6 +103,7 @@ async function main() {
     },
     websocket,
   });
+  attach(server);
   console.log(`[cheapabase] ready on :${config.port}`);
 }
 

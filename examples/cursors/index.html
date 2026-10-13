@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CURSORS // Global Operations Centre</title>
+  <meta name="description" content="Every cursor on this page is a real person (or a clearly labelled bot), live, on a 100MB backend." />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <canvas id="arena"></canvas>
+
+  <header id="topbar">
+    <div class="brand"><span class="blink">●</span> GLOBAL OPERATIONS CENTRE <span class="dim">// cursors.stumason.dev</span></div>
+    <div id="threat" class="threat">THREAT LEVEL: <b id="threat-level">CALM</b></div>
+    <div class="clock" id="clock">--:--:-- UTC</div>
+  </header>
+
+  <div id="swarm" class="swarm hidden">⚠ SWARM INBOUND: <b id="swarm-n">0</b> BOTS IN THE ROOM ⚠</div>
+
+  <section id="you" class="panel">
+    <div class="label">YOU ARE</div>
+    <div id="you-name" class="you-name">establishing uplink…</div>
+    <div id="you-where" class="dim"></div>
+    <div id="you-n" class="dim"></div>
+  </section>
+
+  <section id="tiles" class="panel">
+    <div class="tile big"><div class="label">LIVE CURSORS</div><div class="num" id="t-live">0</div></div>
+    <div class="tile"><div class="label">ALL-TIME PEAK</div><div class="num" id="t-peak">0</div></div>
+    <div class="tile"><div class="label">PAGE LOADS</div><div class="num" id="t-loads">0</div></div>
+    <div class="tile"><div class="label">UNIQUE TODAY</div><div class="num" id="t-uniq">0</div></div>
+    <div class="tile"><div class="label">COUNTRIES</div><div class="num" id="t-countries">0</div></div>
+    <div class="tile"><div class="label">CITIES</div><div class="num" id="t-cities">0</div></div>
+    <div class="tile"><div class="label">CURSOR-KM TRAVELLED</div><div class="num" id="t-km">0</div></div>
+    <div class="tile"><div class="label">CLICKS</div><div class="num" id="t-clicks">0</div></div>
+    <div class="tile"><div class="label">RAGE CLICKS</div><div class="num" id="t-rage">0</div></div>
+    <div class="tile"><div class="label">YOUR PING</div><div class="num" id="t-ping">-</div></div>
+  </section>
+
+  <section id="server" class="panel">
+    <div class="label">THE ENTIRE BACKEND, RIGHT NOW</div>
+    <div class="row"><span>gateway container RAM</span><b id="s-mem">-</b></div>
+    <div class="row"><span>gateway CPU</span><b id="s-cpu">-</b></div>
+    <div class="row"><span>messages in / s</span><b id="s-in">-</b></div>
+    <div class="row"><span>messages out / s</span><b id="s-out">-</b></div>
+    <div class="row"><span>bandwidth out</span><b id="s-bw">-</b></div>
+    <div class="row"><span>dropped (rate limit)</span><b id="s-drop">-</b></div>
+    <div class="row"><span>server tick</span><b id="s-tick">-</b></div>
+    <div class="row"><span>uptime</span><b id="s-up">-</b></div>
+    <div class="row cost"><span>cost of this hour*</span><b id="s-cost">-</b></div>
+    <svg id="spark" viewBox="0 0 200 40" preserveAspectRatio="none"><polyline id="spark-line" fill="none" stroke="currentColor" stroke-width="1.5" points="" /></svg>
+    <div class="fine">*at Railway's list prices for this RAM + CPU. Postgres runs in its own container and isn't counted.</div>
+  </section>
+
+  <section id="map" class="panel">
+    <div class="label">VISITORS, ALL TIME <span class="dim">(~10km rounding)</span></div>
+    <canvas id="globe" width="440" height="220"></canvas>
+    <ol id="countries" class="countries"></ol>
+  </section>
+
+  <section id="boards" class="panel">
+    <div class="board"><div class="label">FASTEST MOUSE (10s)</div><ol id="b-fast"></ol></div>
+    <div class="board"><div class="label">MOST TRAVELLED</div><ol id="b-far"></ol></div>
+    <div class="board"><div class="label">WORST PING</div><ol id="b-ping"></ol></div>
+    <div class="board"><div class="label">LONGEST IDLE</div><ol id="b-idle"></ol></div>
+  </section>
+
+  <section id="ticker" class="panel">
+    <div class="label">INCOMING</div>
+    <ul id="feed"></ul>
+  </section>
+
+  <footer id="foot">
+    No IPs stored or shown: they're hashed with a key that changes daily, just to count uniques.
+    Location is city level at most, from Cloudflare. Built on <a href="https://github.com/StuMason/cheapabase" target="_blank" rel="noopener">cheapabase</a>.
+    <button id="hud-toggle" type="button">hide HUD</button>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

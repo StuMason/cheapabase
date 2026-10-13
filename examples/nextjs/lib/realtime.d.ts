@@ -38,4 +38,8 @@ export class Channel {
   send(event: string, payload: unknown, opts?: { self?: boolean }): void;
   on(event: string, cb: (payload: any, from: Sender, event?: string) => void): Channel;
   onPresence(cb: (users: PresenceUser[]) => void): Channel;
+  /** Latest-value state, batched by the server once per tick. */
+  setState(payload: unknown): void;
+  /** Called once per tick with [presence key, payload] for every state that changed. */
+  onStates(cb: (states: [string, any][]) => void): Channel;
 }
