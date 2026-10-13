@@ -166,13 +166,34 @@ function applyRemote(row) {
   }
 }
 
+// Throttle, not debounce: while someone types continuously we still push an update
+// at most every SAVE_MS, so the other side sees text stream in instead of waiting
+// for the typist to pause. Only one save is in flight at a time.
+const SAVE_MS = 100;
 let saveTimer;
+let saving = false;
+let lastSave = 0;
 let lastTyping = 0;
+function scheduleSave() {
+  if (saveTimer || saving) return;
+  const wait = Math.max(0, SAVE_MS - (Date.now() - lastSave));
+  saveTimer = setTimeout(async () => {
+    saveTimer = null;
+    saving = true;
+    lastSave = Date.now();
+    try {
+      await save();
+    } finally {
+      saving = false;
+    }
+    if (state.dirty) scheduleSave(); // more edits arrived while saving
+  }, wait);
+}
 function onEdit() {
   state.dirty = true;
+  state.editSeq = (state.editSeq ?? 0) + 1;
   setStatus("Saving...");
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(save, 300);
+  scheduleSave();
   if (Date.now() - lastTyping > 1000) {
     lastTyping = Date.now();
     state.room?.send("typing", {});
@@ -183,10 +204,12 @@ $("title").oninput = onEdit;
 
 async function save() {
   if (!state.current) return;
+  const seq = state.editSeq;
   const patch = { title: $("title").value, content: $("content").value };
   const { error } = await sb.from("docs").update(patch).eq("id", state.current.id);
-  state.dirty = false;
-  setStatus(error ? `Error: ${error.message}` : "Saved");
+  // Only clear dirty if nothing was typed while the request was in flight.
+  if (state.editSeq === seq) state.dirty = false;
+  setStatus(error ? `Error: ${error.message}` : state.dirty ? "Saving..." : "Saved");
 }
 
 function setStatus(s) {
