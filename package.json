@@ -8,7 +8,7 @@
     "keys": "bun run server/keys.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test test/unit",
-    "test:e2e": "bun test test/e2e",
+    "test:e2e": "node --test test/e2e/api.test.mjs",
     "test:ui": "node test/ui/docs-app.mjs",
     "loadtest": "bun run scripts/loadtest.ts"
   },

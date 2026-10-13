@@ -95,9 +95,9 @@ async function main() {
         if (!data) return Response.json({ error: "valid token or apikey query param required" }, { status: 401 });
         return server.upgrade(req, { data }) ? undefined : new Response("websocket upgrade failed", { status: 400 });
       }
-      if (p === "/health") return Response.json({ ok: true, realtime: stats() });
+      if (p === "/health") return Response.json({ ok: true, realtime: stats() }, { headers: cors });
       // Public config for the frontend: the anon key is safe to expose, same as on Supabase.
-      if (p === "/config.json") return Response.json({ url: config.publicUrl, anonKey });
+      if (p === "/config.json") return Response.json({ url: config.publicUrl, anonKey }, { headers: cors });
 
       return staticFile(p);
     },

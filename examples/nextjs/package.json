@@ -1,0 +1,22 @@
+{
+  "name": "cheapabase-nextjs-example",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p ${PORT:-3001}",
+    "build": "next build",
+    "start": "next start -p ${PORT:-3001}"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.57.4",
+    "next": "15.5.27",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "typescript": "5.9.3"
+  }
+}

@@ -33,7 +33,10 @@ async function until(fn: () => boolean, ms = 2000) {
   }
 }
 
-afterEach(() => server?.stop(true));
+// Not awaited: on Bun 1.3.0, stop() can wait forever on a socket the server itself closed.
+afterEach(() => {
+  server?.stop(true);
+});
 
 test("subscribe resolves, change events reach the callback", async () => {
   const s = fakeServer((ws, m) => {
@@ -79,6 +82,21 @@ test("reconnects with a fresh token and restores subscriptions and channels", as
   expect(s.received.filter((m) => m.type === "subscribe").length).toBe(2);
   expect(s.received.filter((m) => m.type === "join").at(-1)).toMatchObject({ channel: "room:1", presence: { name: "ada" } });
   rt.close();
+});
+
+test("close() during a reconnect backoff does not reconnect", async () => {
+  let sockets: any[] = [];
+  const s = fakeServer((ws, m) => {
+    sockets.push(ws);
+    if (m.type === "subscribe") ws.send(JSON.stringify({ type: "subscribed", ref: m.ref }));
+  });
+  const rt = new RealtimeClient(s.url, () => "tok");
+  await rt.on("docs", {}, () => {});
+  sockets[0].close();
+  await Bun.sleep(50); // client sees the close and schedules a reconnect (250ms)
+  rt.close();
+  await Bun.sleep(500);
+  expect(s.tokens.length).toBe(1);
 });
 
 test("broadcast and presence are routed to the channel", async () => {

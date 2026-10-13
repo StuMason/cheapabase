@@ -53,3 +53,78 @@ jobs:
       - name: Stack logs
         if: failure()
         run: docker compose logs
+
+  examples:
+    name: Example (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: nextjs
+            port: 3001
+            install: npm ci && npm run build
+            start: PORT=3001 npm start
+          - name: fastapi
+            port: 3003
+            install: uv sync --frozen
+            start: uv run uvicorn app.main:app --host 127.0.0.1 --port 3003
+          - name: rails
+            port: 3004
+            install: bundle install
+            start: bin/rails server -b 127.0.0.1 -p 3004
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - if: matrix.name == 'laravel'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+      - if: matrix.name == 'fastapi'
+        uses: astral-sh/setup-uv@v6
+      - if: matrix.name == 'rails'
+        uses: ruby/setup-ruby@v1
+        with:
+          working-directory: examples/rails
+          bundler-cache: true
+
+      - name: Start cheapabase
+        working-directory: .
+        run: docker compose up -d --build --wait
+
+      - name: Install the example
+        run: ${{ matrix.install }}
+
+      - name: Start the example
+        run: |
+          nohup sh -c '${{ matrix.start }}' > /tmp/example.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:${{ matrix.port }}/ && exit 0
+            sleep 1
+          done
+          echo "example did not start"; cat /tmp/example.log; exit 1
+
+      - name: Smoke test (auth, functions, RLS, realtime)
+        working-directory: .
+        run: |
+          bun install --frozen-lockfile
+          npx playwright-core install --with-deps chromium
+          node examples/smoke.mjs http://127.0.0.1:${{ matrix.port }}
+
+      - name: Logs
+        if: failure()
+        working-directory: .
+        run: |
+          cat /tmp/example.log || true
+          docker compose logs

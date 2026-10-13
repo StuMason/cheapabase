@@ -15,6 +15,7 @@ export class RealtimeClient {
     this.pending = new Map(); // ref -> { resolve, reject }
     this.queue = [];
     this.closed = false;
+    this.reconnectTimer = null;
     this.retry = 0;
     this.n = 0;
     this.connect();
@@ -24,6 +25,7 @@ export class RealtimeClient {
     const token = this.getToken();
     const ws = (this.ws = new WebSocket(`${this.url}?token=${encodeURIComponent(token)}`));
     ws.onopen = () => {
+      if (ws !== this.ws) return;
       this.retry = 0;
       // Subscriptions and joins are (re)sent from state on every open, never queued,
       // so a reconnect restores them and nothing is sent twice.
@@ -31,11 +33,16 @@ export class RealtimeClient {
       for (const ch of this.channels.values()) if (ch.joined || ch.joinRef) ch.rejoin();
       for (const m of this.queue.splice(0)) ws.send(m);
     };
-    ws.onmessage = (e) => this.handle(JSON.parse(e.data));
+    ws.onmessage = (e) => ws === this.ws && this.handle(JSON.parse(e.data));
+    // Some runtimes fire close more than once; only the current socket may schedule
+    // one reconnect, otherwise we'd open a second, orphaned connection.
     ws.onclose = () => {
-      if (this.closed) return;
+      if (this.closed || ws !== this.ws || this.reconnectTimer) return;
       const delay = Math.min(10000, 250 * 2 ** this.retry++);
-      setTimeout(() => this.connect(), delay);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        if (!this.closed) this.connect();
+      }, delay);
     };
     clearInterval(this.ping);
     this.ping = setInterval(() => this.raw({ type: "ping" }), 25000);
@@ -97,6 +104,7 @@ export class RealtimeClient {
 
   close() {
     this.closed = true;
+    clearTimeout(this.reconnectTimer);
     clearInterval(this.ping);
     this.ws.close();
   }

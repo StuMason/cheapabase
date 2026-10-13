@@ -1,7 +1,11 @@
-// End-to-end test against a running cheapabase (docker compose up, then `bun test`).
+// End-to-end test against a running cheapabase (docker compose up, then `npm run test:e2e`).
 // Uses the real supabase-js client to prove compatibility.
-import { describe, expect, test, beforeAll } from "bun:test";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+// Runs on Node, not Bun: Bun's WebSocket client intermittently fails to parse the server's frames
+// ("control frame is fragmented", close 1002) while Node and Chromium handle the same stream fine.
+import { before, describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { setTimeout as sleep } from "node:timers/promises";
+import { createClient } from "@supabase/supabase-js";
 import { RealtimeClient } from "../../client/realtime.js";
 
 const URL = process.env.CHEAPABASE_URL ?? "http://localhost:8000";
@@ -12,27 +16,24 @@ async function newUser() {
   const email = `u${crypto.randomUUID().slice(0, 8)}@example.com`;
   const { data, error } = await sb.auth.signUp({ email, password: "password123" });
   if (error) throw error;
-  return { sb, email, id: data.user!.id, token: data.session!.access_token };
+  return { sb, email, id: data.user.id, token: data.session.access_token };
 }
 
-function realtimeFor(token: string) {
+function realtimeFor(token) {
   return new RealtimeClient(URL, () => token);
 }
 
-function waitFor<T>(arr: T[], n = 1, ms = 3000) {
-  return new Promise<T[]>((resolve, reject) => {
-    const start = Date.now();
-    const t = setInterval(() => {
-      if (arr.length >= n) { clearInterval(t); resolve(arr); }
-      else if (Date.now() - start > ms) { clearInterval(t); reject(new Error(`timed out, got ${arr.length}`)); }
-    }, 20);
-  });
+async function until(fn, what, ms = 3000) {
+  const start = Date.now();
+  while (!fn()) {
+    if (Date.now() - start > ms) throw new Error(`timed out waiting for ${what}`);
+    await sleep(20);
+  }
 }
 
-let alice: Awaited<ReturnType<typeof newUser>>;
-let bob: Awaited<ReturnType<typeof newUser>>;
+let alice, bob;
 
-beforeAll(async () => {
+before(async () => {
   anonKey = (await (await fetch(`${URL}/config.json`)).json()).anonKey;
   alice = await newUser();
   bob = await newUser();
@@ -41,31 +42,31 @@ beforeAll(async () => {
 describe("rest + rls", () => {
   test("users only see their own docs", async () => {
     const { data: doc, error } = await alice.sb.from("docs").insert({ title: "secret" }).select().single();
-    expect(error).toBeNull();
-    expect(doc.owner_id).toBe(alice.id);
+    assert.equal(error, null);
+    assert.equal(doc.owner_id, alice.id);
     const { data: bobs } = await bob.sb.from("docs").select().eq("id", doc.id);
-    expect(bobs).toEqual([]);
+    assert.deepEqual(bobs, []);
     const anon = createClient(URL, anonKey, { auth: { persistSession: false } });
     const { data: anonDocs, error: anonErr } = await anon.from("docs").select();
-    expect(anonDocs ?? []).toEqual([]);
-    expect(anonErr === null || anonErr.code === "42501").toBe(true);
+    assert.deepEqual(anonDocs ?? [], []);
+    assert.ok(anonErr === null || anonErr.code === "42501");
   });
 });
 
 describe("functions", () => {
   test("hello knows who you are", async () => {
     const { data } = await alice.sb.functions.invoke("hello");
-    expect(data.message).toBe(`hello ${alice.email}`);
+    assert.equal(data.message, `hello ${alice.email}`);
   });
 
   test("only the owner can share", async () => {
     const { data: doc } = await alice.sb.from("docs").insert({ title: "shared" }).select().single();
     const denied = await bob.sb.functions.invoke("share-doc", { body: { doc_id: doc.id, email: bob.email } });
-    expect(denied.error).not.toBeNull();
+    assert.notEqual(denied.error, null);
     const ok = await alice.sb.functions.invoke("share-doc", { body: { doc_id: doc.id, email: bob.email } });
-    expect(ok.data.user_id).toBe(bob.id);
+    assert.equal(ok.data.user_id, bob.id);
     const { data: seen } = await bob.sb.from("docs").select().eq("id", doc.id);
-    expect(seen?.length).toBe(1);
+    assert.equal(seen?.length, 1);
   });
 });
 
@@ -74,27 +75,29 @@ describe("realtime", () => {
     const { data: doc } = await alice.sb.from("docs").insert({ title: "live" }).select().single();
     const a = realtimeFor(alice.token);
     const b = realtimeFor(bob.token);
-    const aEvents: any[] = [], bEvents: any[] = [];
+    const aEvents = [];
+    const bEvents = [];
     await a.on("docs", { filter: `id=eq.${doc.id}` }, (e) => aEvents.push(e));
     await b.on("docs", {}, (e) => bEvents.push(e));
 
     await alice.sb.from("docs").update({ content: "hello world" }).eq("id", doc.id);
-    await waitFor(aEvents);
-    expect(aEvents[0].event).toBe("UPDATE");
-    expect(aEvents[0].new.content).toBe("hello world");
-    await Bun.sleep(200);
-    expect(bEvents).toEqual([]); // bob can't see alice's doc
+    await until(() => aEvents.length === 1, "alice's update");
+    assert.equal(aEvents[0].event, "UPDATE");
+    assert.equal(aEvents[0].new.content, "hello world");
+    await sleep(200);
+    assert.deepEqual(bEvents, []); // bob can't see alice's doc
 
     await alice.sb.functions.invoke("share-doc", { body: { doc_id: doc.id, email: bob.email } });
     await alice.sb.from("docs").update({ content: "now bob sees it" }).eq("id", doc.id);
-    await waitFor(bEvents);
-    expect(bEvents[0].new.content).toBe("now bob sees it");
+    await until(() => bEvents.length === 1, "bob's update");
+    assert.equal(bEvents[0].new.content, "now bob sees it");
 
     await alice.sb.from("docs").delete().eq("id", doc.id);
-    await waitFor(aEvents, 3);
-    expect(aEvents.at(-1).event).toBe("DELETE");
-    expect(aEvents.at(-1).old.id).toBe(doc.id);
-    a.close(); b.close();
+    await until(() => aEvents.length === 3, "the delete");
+    assert.equal(aEvents.at(-1).event, "DELETE");
+    assert.equal(aEvents.at(-1).old.id, doc.id);
+    a.close();
+    b.close();
   });
 
   test("channels: presence, broadcast and can_join", async () => {
@@ -102,21 +105,20 @@ describe("realtime", () => {
     const a = realtimeFor(alice.token);
     const b = realtimeFor(bob.token);
     const ca = a.channel(`doc:${doc.id}`, { presence: { name: "alice" } });
-    const presence: any[] = [];
-    ca.onPresence((users) => presence.push(users));
     await ca.join();
-    await expect(b.channel(`doc:${doc.id}`).join()).rejects.toThrow(/not allowed/);
+    await assert.rejects(b.channel(`doc:${doc.id}`).join(), /not allowed/);
 
     await alice.sb.functions.invoke("share-doc", { body: { doc_id: doc.id, email: bob.email } });
     const cb = b.channel(`doc:${doc.id}`, { presence: { name: "bob" } });
-    const got: any[] = [];
+    const got = [];
     cb.on("cursor", (payload) => got.push(payload));
     await cb.join();
-    await waitFor(presence, 2);
-    expect(presence.at(-1).map((u: any) => u.name).sort()).toEqual(["alice", "bob"]);
+    const names = () => (ca.users ?? []).map((u) => u.name).sort().join(",");
+    await until(() => names() === "alice,bob", "both users in presence");
     ca.send("cursor", { pos: 5 });
-    await waitFor(got);
-    expect(got[0]).toEqual({ pos: 5 });
-    a.close(); b.close();
+    await until(() => got.length === 1, "the broadcast");
+    assert.deepEqual(got[0], { pos: 5 });
+    a.close();
+    b.close();
   });
 });

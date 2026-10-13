@@ -119,3 +119,8 @@ Server pushes:
 - Filters support `eq` only.
 - One RLS read per distinct user per change. Fine for hundreds of listeners on a table, not for tens of thousands.
 - Broadcast and presence are per instance. Run one instance, or put a shared pub/sub in front if you scale out.
+- **Bun as a realtime client:** Bun's built-in WebSocket client sometimes drops the connection with
+  `1002 control frame is fragmented` on a stream that browsers and Node read fine. The client
+  reconnects and restores its subscriptions, but events sent during the gap are missed. Prefer
+  Node or the browser for long-lived realtime clients until that's fixed in Bun. (The cheapabase
+  server itself runs on Bun and is not affected.)
