@@ -17,7 +17,14 @@ async function cgroup() {
     if (cpuPrev && now > cpuPrev.at) cpu = (usec - cpuPrev.usec) / ((now - cpuPrev.at) * 1000);
     cpuPrev = { at: now, usec };
   }
-  return { memory_bytes: mem ?? process.memoryUsage().rss, cpu_cores: cpu };
+  // Real bytes on the wire (after any websocket compression), summed over non-loopback interfaces.
+  const net = (await Bun.file("/proc/net/dev").text().catch(() => ""))
+    .split("\n")
+    .slice(2)
+    .map((l) => l.trim().split(/[:\s]+/))
+    .filter((f) => f.length > 9 && f[0] !== "lo")
+    .reduce((sum, f) => sum + Number(f[9]), 0);
+  return { memory_bytes: mem ?? process.memoryUsage().rss, cpu_cores: cpu, net_tx_bytes: net || null };
 }
 
 const handler: Handler = async (_req, { admin }) => {

@@ -283,7 +283,10 @@ async function poll() {
     if (dt > 0) {
       const inS = (s.realtime.msgs_in - prev.server.realtime.msgs_in) / dt;
       const outS = (s.realtime.msgs_out - prev.server.realtime.msgs_out) / dt;
-      const bw = (s.realtime.bytes_out - prev.server.realtime.bytes_out) / dt;
+      // Prefer real wire bytes (after compression); fall back to the JSON byte counter.
+      const bw = s.container.net_tx_bytes && prev.server.container.net_tx_bytes
+        ? (s.container.net_tx_bytes - prev.server.container.net_tx_bytes) / dt
+        : (s.realtime.bytes_out - prev.server.realtime.bytes_out) / dt;
       $("s-in").textContent = fmt(inS);
       $("s-out").textContent = fmt(outS);
       $("s-bw").textContent = bw > 1048576 ? `${(bw / 1048576).toFixed(2)} MB/s` : `${(bw / 1024).toFixed(1)} KB/s`;

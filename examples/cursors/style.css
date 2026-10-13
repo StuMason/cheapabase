@@ -67,4 +67,5 @@ body.nohud .panel, body.nohud #topbar { display: none; }
   .tile .num { font-size: 14px; }
   .tile.big .num { font-size: 36px; }
   #topbar .clock, #topbar .dim { display: none; }
+  .swarm { top: auto; bottom: 34px; font-size: 11px; white-space: nowrap; }
 }
