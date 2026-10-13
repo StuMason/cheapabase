@@ -34,8 +34,9 @@ export const config = {
   authMigrationsPath: process.env.AUTH_MIGRATIONS_PATH ?? "/usr/local/etc/auth/migrations",
   postgrestPort: Number(process.env.POSTGREST_PORT ?? 3000),
   authPort: Number(process.env.AUTH_PORT ?? 9999),
-  // Extra env passed straight through to the auth server (GOTRUE_*), e.g. SMTP or OAuth settings.
   disableSignup: process.env.DISABLE_SIGNUP === "true",
   autoconfirm: process.env.MAILER_AUTOCONFIRM !== "false",
   dbSchemas: process.env.DB_SCHEMAS ?? "public",
+  // Frontend served at "/". Defaults to the vanilla docs example. Set to "" to serve no frontend.
+  staticDir: process.env.STATIC_DIR ?? "examples/vanilla",
 };

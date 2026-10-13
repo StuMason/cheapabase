@@ -1,6 +1,6 @@
-// Tests public/realtime.js against a fake server speaking the same protocol.
+// Tests client/realtime.js against a fake server speaking the same protocol.
 import { afterEach, expect, test } from "bun:test";
-import { RealtimeClient } from "../../public/realtime.js";
+import { RealtimeClient } from "../../client/realtime.js";
 
 type Msg = Record<string, any>;
 let server: ReturnType<typeof Bun.serve> | undefined;

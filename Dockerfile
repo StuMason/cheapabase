@@ -15,7 +15,8 @@ RUN bun install --production --frozen-lockfile
 COPY server ./server
 COPY db ./db
 COPY functions ./functions
-COPY public ./public
+COPY client ./client
+COPY examples/vanilla ./examples/vanilla
 
 ENV PORT=8000
 EXPOSE 8000

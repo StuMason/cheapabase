@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title if doc else "Not found" }}{% endblock %}
+{% block body %}
+<p><a href="/">&larr; All docs</a></p>
+{% if not doc %}
+<p id="not-found">That doc doesn't exist, or you don't have access to it.</p>
+{% else %}
+<h1 id="doc-title">{{ doc.title }}</h1>
+<form method="post" action="/docs/{{ doc.id }}">
+  <textarea id="content" name="content">{{ doc.content }}</textarea>
+  <p><button id="save" type="submit">Save</button> <span id="status" class="muted">{{ "Saved" if saved else "" }}</span></p>
+</form>
+
+<script type="module">
+  // The user's own JWT, so the realtime server applies their RLS policies.
+  import { RealtimeClient } from {{ (cheapabase_url ~ "/realtime.js") | tojson }};
+  const token = {{ access_token | tojson }};
+  const content = document.querySelector("#content");
+  const status = document.querySelector("#status");
+  let dirty = false;
+  content.addEventListener("input", () => { dirty = true; status.textContent = "Unsaved changes"; });
+
+  const rt = new RealtimeClient({{ cheapabase_url | tojson }}, () => token);
+  await rt.on("docs", { event: "UPDATE", filter: {{ ("id=eq." ~ doc.id) | tojson }} }, (change) => {
+    if (dirty || !change.new) return; // don't clobber unsaved edits
+    content.value = change.new.content;
+    status.textContent = "Updated live";
+  });
+</script>
+{% endif %}
+{% endblock %}

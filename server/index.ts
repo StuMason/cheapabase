@@ -2,7 +2,7 @@
 //   - runs migrations and starts auth (GoTrue) + PostgREST on localhost
 //   - proxies /auth/v1 and /rest/v1 with the same paths Supabase uses (supabase-js just works)
 //   - serves realtime (/realtime/v1), functions (/functions/v1/<name>) and the static frontend
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { config } from "./config";
 import { bootstrap, migrate } from "./db";
 import { startAuth, startPostgrest } from "./services";
@@ -36,17 +36,30 @@ async function proxy(req: Request, target: string): Promise<Response> {
   return new Response(res.body, { status: res.status, headers: out });
 }
 
-const publicDir = join(import.meta.dir, "..", "public");
-const supabaseUmd = join(import.meta.dir, "..", "node_modules", "@supabase", "supabase-js", "dist", "umd", "supabase.js");
+const root = join(import.meta.dir, "..");
+const clientDir = join(root, "client");
+const supabaseUmd = join(root, "node_modules", "@supabase", "supabase-js", "dist", "umd", "supabase.js");
+
+// Files every app can load from the gateway, cross-origin too.
+const shared: Record<string, string> = {
+  "/realtime.js": join(clientDir, "realtime.js"),
+  "/realtime.d.ts": join(clientDir, "realtime.d.ts"),
+  "/vendor/supabase.js": supabaseUmd,
+};
 
 async function staticFile(pathname: string): Promise<Response> {
-  if (pathname === "/vendor/supabase.js") return new Response(Bun.file(supabaseUmd));
+  const headers = { "access-control-allow-origin": "*" };
+  if (shared[pathname]) return new Response(Bun.file(shared[pathname]), { headers });
+  if (!config.staticDir) {
+    return Response.json({ name: "cheapabase", health: "/health", docs: "https://github.com/alnutile/cheapabase" }, { status: pathname === "/" ? 200 : 404 });
+  }
+  const dir = isAbsolute(config.staticDir) ? config.staticDir : join(root, config.staticDir);
   const clean = pathname === "/" ? "/index.html" : pathname;
   if (clean.includes("..")) return new Response("not found", { status: 404 });
-  const file = Bun.file(join(publicDir, clean));
-  if (await file.exists()) return new Response(file);
+  const file = Bun.file(join(dir, clean));
+  if (await file.exists()) return new Response(file, { headers });
   // SPA fallback
-  return new Response(Bun.file(join(publicDir, "index.html")));
+  return new Response(Bun.file(join(dir, "index.html")), { headers });
 }
 
 async function main() {

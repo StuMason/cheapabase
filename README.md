@@ -1,108 +1,139 @@
 # cheapabase
 
 The parts of Supabase you actually use, in **two containers** and about **100MB of RAM**.
+A small app runs on Railway's **$5/month** Hobby plan ([cost breakdown](docs/cost.md)).
 
 - **Postgres** with **RLS**, the same `anon` / `authenticated` / `service_role` roles and `auth.uid()`
-- **Auth** with JWTs (Supabase's own auth server, GoTrue)
+- **Auth** with JWTs (Supabase's own auth server, GoTrue): email + password out of the box, OAuth and SMTP via env vars
 - **REST API** generated from your schema (PostgREST)
 - **Realtime**: row changes filtered by RLS, plus broadcast and presence channels
 - **Functions**: drop a file in `functions/`, call it at `/functions/v1/<name>`
-- **supabase-js works unchanged** for auth, database and functions
-
-It comes with an example app: **realtime collaborative docs** (sign up, write, share, see each other type).
+- **supabase-js works unchanged** for auth, database and functions. So does the Python `supabase` client
+- **Works with any framework.** The same example app is built in [vanilla JS](examples/vanilla), [Next.js](examples/nextjs), [Laravel](examples/laravel), [FastAPI](examples/fastapi) and [Rails](examples/rails), and CI tests every one of them
 
 ```
-                       one container (Bun, ~45MB RAM)
+                       one container (Bun, ~40MB RAM idle)
                 ┌─────────────────────────────────────────────┐
  browser ──────▶│ gateway :8000                               │
- supabase-js    │   /auth/v1/*       ──▶ auth (GoTrue)  :9999 │──┐
-                │   /rest/v1/*       ──▶ PostgREST      :3000 │──┤
-                │   /realtime/v1     websocket, LISTEN/NOTIFY │──┼──▶ Postgres
-                │   /functions/v1/*  your functions/*.ts      │──┤
-                │   /*               public/ (the frontend)   │  │
+ supabase-js    │   /auth/v1/*       ──▶ auth (GoTrue)        │──┐
+ Laravel, Rails │   /rest/v1/*       ──▶ PostgREST            │──┤
+ FastAPI, ...   │   /realtime/v1     websocket, RLS-filtered  │──┼──▶ Postgres
+                │   /functions/v1/*  your functions/*.ts      │──┤   (~60MB idle)
+                │   /*               your frontend (optional) │  │
                 └─────────────────────────────────────────────┘  │
 ```
 
-## Why is Supabase so heavy, and why is this light?
+**Contents:** [Quickstart](#quickstart-5-minutes) ·
+[Examples](#examples-same-app-five-frameworks) ·
+[Deploy to Railway](#deploy-to-railway) ·
+[Cost](#cost) ·
+[Build your own app](#build-your-own-app) ·
+[Configuration](#configuration) ·
+[Tests](#tests) ·
+[Troubleshooting](#troubleshooting) ·
+[Why it's light](#why-is-supabase-heavy-and-this-light) ·
+[Limits](#limits)
 
-Self-hosted Supabase runs about 12 services in 5 languages: Kong, GoTrue, PostgREST, Realtime (Elixir), Storage + imgproxy, Edge Runtime (Deno), Studio (Next.js), postgres-meta, Logflare, Vector and Supavisor. Most of the memory goes to the dashboard, logging and Elixir services, not to the parts your app talks to.
+## Quickstart (5 minutes)
 
-cheapabase keeps the two Supabase pieces that are small and great (GoTrue and PostgREST are static binaries) and replaces everything else with about 700 lines of TypeScript and SQL:
-
-| Supabase service | cheapabase |
-|---|---|
-| Kong | the Bun gateway (`server/index.ts`) |
-| Realtime (Elixir) | `server/realtime.ts`: Postgres `LISTEN/NOTIFY` + RLS re-check per subscriber |
-| Edge Runtime (Deno) | `server/functions.ts`: plain Bun handlers |
-| Studio, Logflare, Vector, Supavisor, Storage | not included. Use `psql` or any Postgres GUI, and S3/R2 for files |
-
-## Run it locally
+You need [Docker](https://docs.docker.com/get-docker/) with Compose. That's all.
 
 ```bash
+git clone https://github.com/alnutile/cheapabase.git
+cd cheapabase
 docker compose up --build
 ```
 
-Open http://localhost:8000, sign up with any email (no confirmation needed), make a doc. Open a second browser (or a private window), sign up as someone else, share the doc with them from the first window and type in either one.
+Wait for this line in the logs (first boot takes a minute while images download):
 
-## Tests
-
-```bash
-bun install
-bun run typecheck
-bun run test        # unit tests, no database needed
-
-# with the stack running (docker compose up):
-bun run test:e2e    # API tests with the real supabase-js: RLS, functions, realtime, presence
-npx playwright-core install chromium
-npm run test:ui     # two browser users share a doc and edit it live
+```
+app-1  | [cheapabase] ready on :8000
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of these on every pull request, including a real `docker compose up --build`.
+Then open **http://localhost:8000**:
+
+1. Click **Need an account? Sign up**, use any email (e.g. `ada@example.com`) and a password of 6+ characters. No email confirmation needed locally.
+2. Click **+ New doc** and type.
+3. Open a **private window**, sign up as someone else (e.g. `bob@example.com`).
+4. Back in the first window click **Share** and enter `bob@example.com`. The doc appears in Bob's sidebar right away.
+5. Open the doc in both windows and type. You'll see the other person's avatar, "is typing" and their edits live.
+
+Check the API directly:
+
+```bash
+curl http://localhost:8000/health        # {"ok":true,...}
+curl http://localhost:8000/config.json   # {"url":"...","anonKey":"eyJ..."}
+```
+
+Stop with `Ctrl+C`. Start fresh (deletes the database) with `docker compose down -v`.
+
+## Examples: same app, five frameworks
+
+Every example builds the same docs app against the same backend: sign up and sign in, call a function,
+create and edit docs under RLS, and get live updates over realtime. One browser test
+(`examples/smoke.mjs`) checks all of them, and CI runs it on every pull request.
+
+| Example | Stack | Talks to cheapabase with | Port |
+|---|---|---|---|
+| [`examples/vanilla`](examples/vanilla) | plain HTML/JS, **the default**, served at `/` | supabase-js | 8000 |
+| [`examples/nextjs`](examples/nextjs) | Next.js (App Router) | supabase-js | 3001 |
+| [`examples/laravel`](examples/laravel) | Laravel + Blade | Laravel `Http` client | 3002 |
+| [`examples/fastapi`](examples/fastapi) | FastAPI + Jinja | the official `supabase` Python client | 3003 |
+| [`examples/rails`](examples/rails) | Ruby on Rails | `Net::HTTP` | 3004 |
+
+Start the stack with `docker compose up`, then follow the README in the example's folder. All of them
+read `CHEAPABASE_URL` (default `http://localhost:8000`). See [examples/README.md](examples/README.md)
+for the shared contract and how to add your own.
+
+The default frontend is set by `STATIC_DIR` (default `examples/vanilla`). Set `STATIC_DIR=` (empty)
+to run cheapabase as a pure API for a frontend hosted elsewhere.
 
 ## Deploy to Railway
 
-You need two things on Railway: a Postgres database and this repo.
+You need a [Railway](https://railway.com) account (the trial includes $5 of credit) and this repo on
+your GitHub account (fork it, or push your copy).
 
-1. **New Project** → **Deploy from GitHub repo** → pick this repo. Railway finds the `Dockerfile` and `railway.json`.
-2. In the same project, **+ Create** → **Database** → **PostgreSQL**.
-3. Open the cheapabase service → **Variables** and add:
-   - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
-   - `JWT_SECRET` = a long random string, for example the output of `openssl rand -hex 32`
-4. **Settings** → **Networking** → **Generate Domain** (target port `8000`).
+1. **Create the project.** Railway dashboard → **New Project** → **Deploy from GitHub repo** → pick your cheapabase repo.
+   Railway finds the `Dockerfile` and `railway.json` automatically. The first deploy will fail
+   because the variables aren't set yet. That's expected.
+2. **Add Postgres.** In the same project: **+ Create** → **Database** → **PostgreSQL**.
+3. **Set two variables.** Click the cheapabase service → **Variables** → add:
 
-That's it. On boot the app creates roles, lets the auth server migrate its schema, applies `db/migrations/*.sql`, and starts serving. The public URL is picked up from Railway's `RAILWAY_PUBLIC_DOMAIN` automatically.
+   | Name | Value |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (type it exactly like this; Railway fills in the real URL) |
+   | `JWT_SECRET` | a random string of 32+ characters. Generate one with `openssl rand -hex 32` |
 
-Railway bills for what you use. This app idles at roughly 45MB of RAM plus Postgres, so a small project should be cheap to run. Check Railway's pricing page for current numbers.
+4. **Give it a URL.** cheapabase service → **Settings** → **Networking** → **Generate Domain** → port **8000**.
+5. **Deploy.** Railway redeploys when variables change. Watch **Deployments** → **View logs** for
+   `[cheapabase] ready on :8000`.
+6. **Check it.** Open `https://<your-domain>/health`, then the domain itself for the docs app.
 
-## Using it from your own app
+On every boot cheapabase creates its roles, lets the auth server migrate, applies any new
+`db/migrations/*.sql` and starts serving. Railway's healthcheck (`/health`) only passes once all of
+that is done, so a bad migration never replaces a working deploy.
 
-```js
-import { createClient } from "@supabase/supabase-js";
-import { RealtimeClient } from "https://your-app.up.railway.app/realtime.js";
+**Custom domain:** add it under Networking, then set `PUBLIC_URL=https://your.domain` so auth links
+point at it. **Connect with psql:** Postgres service → **Connect** → copy the public URL.
+**Back up your `JWT_SECRET`:** changing it logs everyone out and changes the anon key.
 
-const { anonKey } = await (await fetch("https://your-app.up.railway.app/config.json")).json();
-const supabase = createClient("https://your-app.up.railway.app", anonKey);
+## Cost
 
-await supabase.auth.signUp({ email, password });
-const { data } = await supabase.from("docs").select();
-await supabase.functions.invoke("hello");
+| | Resource use | Railway estimate |
+|---|---|---|
+| Side project (mostly idle) | ~100MB RAM total, ~0 CPU | **$5/month** (inside the Hobby plan's included usage) |
+| Busy (20 req/s 24/7, 100 live sockets) | ~200MB RAM, ~0.4 vCPU | **~$11/month** |
+| Full self-hosted Supabase | Supabase recommends 4GB+ RAM, 2+ cores | $40+/month for the RAM alone |
 
-const { data: { session } } = await supabase.auth.getSession();
-const rt = new RealtimeClient("https://your-app.up.railway.app", () => session.access_token);
-await rt.on("docs", { event: "*" }, (change) => console.log(change.event, change.new));
-```
+Measured, not guessed. [docs/cost.md](docs/cost.md) has the method and Railway's prices, and
+`bun run loadtest` reproduces the numbers.
 
-`supabase.channel(...)` (Supabase Realtime) is **not** supported. Use the small `RealtimeClient` instead, see [docs/realtime.md](docs/realtime.md).
+## Build your own app
 
-Print the anon and service_role keys for your secret:
+### 1. Add a table
 
-```bash
-JWT_SECRET=... bun run keys
-```
-
-## Adding your own tables
-
-Add a numbered file to `db/migrations/`, for example `002_todos.sql`. Each file runs once, in order, inside a transaction.
+Create a numbered file in `db/migrations/`, e.g. `db/migrations/002_todos.sql`. Each file runs once, in
+filename order, inside a transaction. Never edit a file that has already run; add a new one.
 
 ```sql
 create table public.todos (
@@ -112,74 +143,179 @@ create table public.todos (
   done boolean not null default false
 );
 
+-- 1. RLS on, 2. policies, 3. grants. Forget any of the three and requests fail (or worse, leak).
 alter table public.todos enable row level security;
 create policy "own todos" on public.todos
   for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
-
 grant select, insert, update, delete on public.todos to authenticated;
 
--- live updates for this table (needs an "id" column, or pass the pk name as 2nd arg)
+-- optional: live updates (needs a primary key column, "id" by default)
 select realtime.enable('public.todos');
 ```
 
-Restart the app (or redeploy) and `/rest/v1/todos` exists. PostgREST picks up schema changes automatically.
+Restart (`docker compose restart app`, or redeploy on Railway). `/rest/v1/todos` now exists.
 
-**RLS gotcha:** in `select` policies, check simple columns like `owner_id = auth.uid()` directly rather than only through a `stable` helper function that queries the same table. A stable function can't see the row being inserted by the same statement, so `insert ... returning` (what `.insert().select()` does) fails with an RLS error.
+### 2. Use it from the browser
 
-## Functions
+```js
+import { createClient } from "@supabase/supabase-js";
+import { RealtimeClient } from "https://your-app.up.railway.app/realtime.js";
+
+const URL = "https://your-app.up.railway.app";
+const { anonKey } = await (await fetch(`${URL}/config.json`)).json();
+const supabase = createClient(URL, anonKey);
+
+await supabase.auth.signUp({ email: "ada@example.com", password: "password123" });
+await supabase.from("todos").insert({ title: "Ship it" });
+const { data } = await supabase.from("todos").select();
+
+const { data: { session } } = await supabase.auth.getSession();
+const rt = new RealtimeClient(URL, () => session.access_token);
+await rt.on("todos", { event: "*" }, (change) => console.log(change.event, change.new));
+```
+
+Realtime uses cheapabase's own small client, not `supabase.channel()`. See [docs/realtime.md](docs/realtime.md)
+for row changes, broadcast, presence and the wire protocol. TypeScript types are at `/realtime.d.ts`.
+
+### 3. Use it from a server (Laravel, Rails, Django, Go, ...)
+
+It's plain HTTP, the same as Supabase:
+
+```bash
+ANON=$(curl -s localhost:8000/config.json | jq -r .anonKey)
+
+# sign up (returns access_token and refresh_token)
+curl -s localhost:8000/auth/v1/signup -H "apikey: $ANON" -H "content-type: application/json" \
+  -d '{"email":"ada@example.com","password":"password123"}'
+
+# query as that user, RLS applies
+curl -s "localhost:8000/rest/v1/todos?select=*" -H "apikey: $ANON" -H "authorization: Bearer $ACCESS_TOKEN"
+```
+
+The Laravel, FastAPI and Rails examples each wrap this in one small class.
+
+### 4. Add a function
 
 Every file in `functions/` is served at `/functions/v1/<file name>`:
 
 ```ts
-// functions/hello.ts
+// functions/todo-count.ts
 import type { Handler } from "../server/functions";
 
 const handler: Handler = async (req, { user, asUser, admin }) => {
-  // user:   verified JWT claims, or null
+  // user:   verified JWT claims, or null for anonymous calls
   // asUser: run SQL as the caller, RLS applies
-  // admin:  SQL that bypasses RLS, check permissions yourself
-  const todos = await asUser((sql) => sql`select * from todos`);
-  return Response.json({ hello: user?.email, todos });
+  // admin:  SQL that bypasses RLS. Check permissions yourself
+  if (!user) return Response.json({ error: "sign in first" }, { status: 401 });
+  const [row] = await asUser((sql) => sql`select count(*)::int as n from todos`);
+  return Response.json(row);
 };
 export default handler;
 ```
 
-`functions/share-doc.ts` is a real example: it checks ownership as the user, then uses `admin` to look up another user by email.
+Call it with `supabase.functions.invoke("todo-count")`. `functions/share-doc.ts` is a fuller example.
+Functions run inside the gateway with full database access, so treat them like your own server code.
 
-Functions run inside the gateway process with full access. Treat them like your own server code, not like sandboxed user code.
+For plain CRUD you often don't need a function: a Postgres function is exposed at
+`/rest/v1/rpc/<name>` and supabase-js calls it with `supabase.rpc("name", args)`.
 
-For most CRUD you don't need a function at all. A Postgres function is exposed at `/rest/v1/rpc/<name>` and supabase-js calls it with `supabase.rpc("name", args)`.
+### 5. Keys
+
+```bash
+JWT_SECRET=... bun run keys     # prints ANON_KEY and SERVICE_ROLE_KEY
+```
+
+The anon key is public (it's what `/config.json` returns). The service role key bypasses RLS: keep it
+on servers only.
 
 ## Configuration
 
 | Variable | Required | Default | What it does |
 |---|---|---|---|
-| `DATABASE_URL` | yes | | Postgres connection. Needs a user that can create roles (the default `postgres` user on Railway or Docker is fine) |
-| `JWT_SECRET` | yes | | Signs every JWT. At least 32 characters. Changing it logs everyone out and changes the anon key |
-| `PUBLIC_URL` | no | Railway domain or `http://localhost:$PORT` | Used for auth redirect links |
+| `DATABASE_URL` | yes | | Postgres connection. The user must be able to create roles (`postgres` on Docker and Railway is) |
+| `JWT_SECRET` | yes | | Signs every JWT. 32+ characters. Changing it logs everyone out and changes the anon key |
+| `PUBLIC_URL` | no | Railway domain, else `http://localhost:$PORT` | Used in auth redirect links |
 | `PORT` | no | `8000` | |
+| `STATIC_DIR` | no | `examples/vanilla` | Frontend served at `/`. Empty = API only |
 | `JWT_EXPIRY` | no | `3600` | Access token lifetime in seconds |
-| `MAILER_AUTOCONFIRM` | no | `true` | Set `false` once you configure SMTP so people must confirm their email |
+| `MAILER_AUTOCONFIRM` | no | `true` | Set `false` once SMTP is configured so users must confirm their email |
 | `DISABLE_SIGNUP` | no | `false` | |
-| `GOTRUE_*` | no | | Passed straight to the auth server: SMTP (`GOTRUE_SMTP_HOST`, ...), OAuth (`GOTRUE_EXTERNAL_GITHUB_ENABLED`, ...). See the [Supabase auth docs](https://github.com/supabase/auth#configuration) |
-| `PGRST_*` | no | | Passed straight to PostgREST |
+| `GOTRUE_*` | no | | Passed to the auth server: SMTP (`GOTRUE_SMTP_HOST`, ...), OAuth (`GOTRUE_EXTERNAL_GITHUB_ENABLED`, ...). See the [auth server docs](https://github.com/supabase/auth#configuration) |
+| `PGRST_*` | no | | Passed to PostgREST |
 
-## What's not included (yet)
+## Tests
 
-- **Storage.** Use S3, R2 or MinIO with presigned URLs from a function.
-- **Dashboard.** Use `psql`, TablePlus, DBeaver or similar.
-- **Email.** Signups are auto-confirmed by default. Set `GOTRUE_SMTP_*` and `MAILER_AUTOCONFIRM=false` for real email confirmation and password resets.
-- **Conflict-free editing.** The docs example is last-write-wins with a 300ms save debounce. Good for a demo, not for Google Docs-level concurrent typing (that needs a CRDT like Yjs).
-- **Multiple replicas.** Database change events work with any number of replicas, but broadcast and presence only reach clients on the same instance. Run one instance, which is plenty for most apps.
+```bash
+bun install
+bun run typecheck
+bun run test                  # unit tests, no database needed
+
+# these need the stack running (docker compose up -d --wait)
+bun run test:e2e              # real supabase-js: RLS, functions, realtime, presence
+npx playwright-core install chromium
+npm run test:ui               # two browser users share a doc and edit it live
+node examples/smoke.mjs http://localhost:3001   # contract test for a framework example
+```
+
+CI (`.github/workflows/ci.yml`) runs all of it on every pull request: a real `docker compose up --build`,
+the API and browser tests, and the smoke test against every framework example.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `missing required env var DATABASE_URL` / `JWT_SECRET` | Set both. On Railway, `DATABASE_URL` must be exactly `${{Postgres.DATABASE_URL}}` and the Postgres service must be in the same project |
+| `JWT_SECRET must be at least 32 characters` | Use `openssl rand -hex 32` |
+| Railway deploy stuck on the healthcheck | Open the deploy logs. Usually a variable is missing or a migration has an SQL error |
+| A migration failed | It ran in a transaction, so nothing was half-applied. Fix the file and restart |
+| `new row violates row-level security policy` on `.insert().select()` | In `select` policies, check simple columns like `owner_id = auth.uid()` directly, not only through a `stable` helper function. The helper can't see the row being inserted by the same statement |
+| `permission denied for table ...` | Missing `grant ... to authenticated` in your migration |
+| Requests return `[]` but the data exists | RLS is hiding it: check your `select` policy and that the request sends the user's token, not just the anon key |
+| No realtime events | Did you run `select realtime.enable('public.your_table')`? Does the table have an `id` column (or did you pass the pk name)? Can the user `select` the row? |
+| `not allowed to join channel` | Your `realtime.can_join()` returned false for that user and channel |
+| Port 8000 already in use | Change `"8000:8000"` to `"8080:8000"` in `docker-compose.yml` and set `PUBLIC_URL=http://localhost:8080` |
+| Everyone got logged out | `JWT_SECRET` changed |
+| Want a clean local database | `docker compose down -v && docker compose up` |
+
+## Why is Supabase heavy and this light?
+
+Self-hosted Supabase runs about 12 services in 5 languages: Kong, GoTrue, PostgREST, Realtime
+(Elixir), Storage + imgproxy, Edge Runtime (Deno), Studio (Next.js), postgres-meta, Logflare, Vector
+and Supavisor. Most of the memory goes to the dashboard, logging and Elixir services, not to the parts
+your app talks to.
+
+cheapabase keeps the two Supabase pieces that are small and great (GoTrue and PostgREST, both static
+binaries) and replaces the rest with about 700 lines of TypeScript and SQL:
+
+| Supabase service | cheapabase |
+|---|---|
+| Kong | the Bun gateway (`server/index.ts`) |
+| Realtime (Elixir) | `server/realtime.ts`: Postgres `LISTEN/NOTIFY` + an RLS re-check per subscriber |
+| Edge Runtime (Deno) | `server/functions.ts`: plain Bun handlers |
+| Studio, Logflare, Vector, Supavisor, Storage | not included. Use `psql` or any Postgres GUI, and S3/R2 for files |
+
+## Limits
+
+- **No storage.** Use S3, R2 or MinIO with presigned URLs from a function.
+- **No dashboard.** Use `psql`, TablePlus, DBeaver or similar.
+- **No email by default.** Signups are auto-confirmed. Set `GOTRUE_SMTP_*` and `MAILER_AUTOCONFIRM=false` for confirmation and password reset emails.
+- **`supabase.channel()` doesn't work.** Use `realtime.js` (row changes, broadcast and presence are all there).
+- **Realtime filters support `eq` only**, and delete events carry only the primary key.
+- **One instance.** Row change events work across replicas, but broadcast and presence only reach clients on the same instance.
+- **The docs example is last-write-wins.** Good for a demo, not for heavy simultaneous typing (that needs a CRDT like Yjs).
 
 ## Project layout
 
 ```
-server/        Bun gateway: proxy, realtime, functions, migrations, child processes
-db/bootstrap.sql   roles + realtime schema, runs every boot (idempotent)
-db/migrations/     your schema, each file runs once
-functions/     your functions
-public/        the example docs app + realtime.js client
-test/          unit, end-to-end (supabase-js) and browser tests
+server/             Bun gateway: proxy, realtime, functions, migrations, child processes
+db/bootstrap.sql    roles + realtime schema, runs every boot (idempotent)
+db/migrations/      your schema, each file runs once
+functions/          your functions
+client/             realtime.js client + TypeScript types, served at /realtime.js
+examples/           the docs app in vanilla JS (default), Next.js, Laravel, FastAPI and Rails
+test/               unit, end-to-end (supabase-js) and browser tests
+scripts/loadtest.ts load test used for docs/cost.md
+docs/               realtime.md, cost.md
+AGENTS.md           guide for AI coding agents and contributors
 ```

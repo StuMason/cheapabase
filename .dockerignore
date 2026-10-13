@@ -3,3 +3,7 @@ node_modules
 test
 *.md
 .env
+examples/*
+!examples/vanilla
+scripts
+docs

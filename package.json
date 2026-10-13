@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test test/unit",
     "test:e2e": "bun test test/e2e",
-    "test:ui": "node test/ui/docs-app.mjs"
+    "test:ui": "node test/ui/docs-app.mjs",
+    "loadtest": "bun run scripts/loadtest.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.57.4",

@@ -31,7 +31,7 @@ Deletes are different: the row is gone, so it can't be checked. Delete events on
 
 ## Client
 
-`public/realtime.js` is a dependency-free ES module, served by the app at `/realtime.js`. It reconnects automatically and restores subscriptions and channels.
+`client/realtime.js` is a dependency-free ES module, served by the app at `/realtime.js`. It reconnects automatically and restores subscriptions and channels.
 
 ```js
 import { RealtimeClient } from "/realtime.js";

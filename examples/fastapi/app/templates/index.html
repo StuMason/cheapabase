@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block body %}
+<header>
+  <h1>Your docs</h1>
+  <form method="post" action="/signout"><button id="signout" type="submit">Sign out</button></form>
+</header>
+<p id="hello" class="muted">{{ hello }}</p>
+{% if error %}<p id="error" class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/docs">
+  <input id="new-doc-title" name="title" placeholder="New doc title">
+  <button id="create-doc" type="submit">Create</button>
+</form>
+
+<ul>
+  {% for doc in docs %}
+  <li><a class="doc-link" href="/docs/{{ doc.id }}">{{ doc.title }}</a></li>
+  {% else %}
+  <li class="muted">No docs yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

@@ -12,5 +12,5 @@
     "checkJs": false,
     "allowImportingTsExtensions": true
   },
-  "include": ["server", "functions", "test"]
+  "include": ["server", "functions", "test", "scripts"]
 }
