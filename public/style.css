@@ -1,0 +1,136 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #1c1f24;
+  --muted: #6b7280;
+  --border: #e3e6ea;
+  --accent: #2f9e6e;
+  --accent-text: #ffffff;
+  --danger: #c2410c;
+  --hover: #eef1f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111315;
+    --panel: #181b1e;
+    --text: #e7e9ec;
+    --muted: #9aa1ab;
+    --border: #2a2e33;
+    --accent: #3ecf8e;
+    --accent-text: #0b1a12;
+    --danger: #f97316;
+    --hover: #22262a;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.error { color: var(--danger); min-height: 1.5em; margin: 0; }
+
+button {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+button:hover { background: var(--hover); }
+button[type="submit"], #new-doc {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: transparent;
+  font-weight: 600;
+}
+button.link { border: none; background: none; color: var(--muted); padding: 0; }
+button.link:hover { color: var(--text); background: none; }
+button.danger { color: var(--danger); }
+input, textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.brand, h1 { font-weight: 700; letter-spacing: -0.01em; }
+.brand span, h1 span { color: var(--accent); }
+
+/* auth */
+.auth { min-height: 100%; display: grid; place-items: center; padding: 16px; }
+.card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px;
+  display: grid;
+  gap: 14px;
+}
+.card h1 { margin: 0; font-size: 24px; }
+.card p { margin: 0; }
+.card label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+
+/* app */
+.app { display: grid; grid-template-columns: 260px 1fr; height: 100%; }
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+#doc-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+#doc-list li {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+#doc-list li:hover { background: var(--hover); }
+#doc-list li.active { background: var(--hover); font-weight: 600; }
+#doc-list li .tag { font-size: 11px; color: var(--muted); font-weight: 400; }
+#doc-list li .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); }
+.me span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me button { white-space: nowrap; }
+
+.editor { min-width: 0; min-height: 0; display: flex; }
+.empty { margin: auto; text-align: center; padding: 16px; }
+.doc { display: flex; flex-direction: column; flex: 1; padding: 20px 28px; gap: 12px; min-height: 0; }
+.doc header { display: flex; gap: 8px; align-items: center; }
+#title { font-size: 22px; font-weight: 700; border-color: transparent; background: transparent; padding-left: 0; }
+#title:focus { border-color: var(--border); padding-left: 10px; }
+#content { flex: 1; resize: none; font-size: 16px; line-height: 1.6; padding: 16px; min-height: 200px; }
+.doc footer { display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
+
+.presence { display: flex; }
+.avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; color: #fff;
+  border: 2px solid var(--panel);
+  margin-left: -6px;
+}
+
+@media (max-width: 720px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
+  .doc { padding: 16px; }
+  .doc header { flex-wrap: wrap; }
+}

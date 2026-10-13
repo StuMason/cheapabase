@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cheapabase docs</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="/vendor/supabase.js"></script>
+</head>
+<body>
+  <section id="auth" class="auth hidden">
+    <form id="auth-form" class="card">
+      <h1>cheapabase <span>docs</span></h1>
+      <p class="muted">Realtime docs on Postgres + RLS. Sign up with any email, no confirmation needed.</p>
+      <label>Email <input id="email" type="email" required autocomplete="email" /></label>
+      <label>Password <input id="password" type="password" required minlength="6" autocomplete="current-password" /></label>
+      <button id="auth-submit" type="submit">Sign in</button>
+      <button id="auth-toggle" type="button" class="link">Need an account? Sign up</button>
+      <p id="auth-error" class="error"></p>
+    </form>
+  </section>
+
+  <section id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand">cheapabase <span>docs</span></div>
+      <button id="new-doc">+ New doc</button>
+      <ul id="doc-list"></ul>
+      <div class="me">
+        <span id="me-email"></span>
+        <button id="sign-out" class="link">Sign out</button>
+      </div>
+    </aside>
+
+    <main id="editor" class="editor">
+      <div id="empty" class="empty">
+        <h2>Pick a doc or make a new one</h2>
+        <p class="muted">Open the same doc in two browsers (or share it with a friend) and watch edits show up live.</p>
+      </div>
+      <div id="doc" class="doc hidden">
+        <header>
+          <input id="title" placeholder="Untitled" />
+          <div id="presence" class="presence"></div>
+          <button id="share">Share</button>
+          <button id="delete" class="danger">Delete</button>
+        </header>
+        <textarea id="content" placeholder="Start typing..."></textarea>
+        <footer>
+          <span id="status" class="muted">Saved</span>
+          <span id="typing" class="muted"></span>
+          <span id="members" class="muted"></span>
+        </footer>
+      </div>
+    </main>
+  </section>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+# Local dev: two containers. Postgres + cheapabase (auth, REST, realtime, functions, frontend).
+#   docker compose up --build   ->  http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/postgres
+      # Change this for anything real: openssl rand -hex 32
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-me-0123456789abcdef}
+      PUBLIC_URL: http://localhost:8000
+    restart: unless-stopped
+
+volumes:
+  db-data:

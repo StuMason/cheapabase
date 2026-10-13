@@ -1,0 +1,15 @@
+{
+  "name": "cheapabase",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run server/index.ts",
+    "keys": "bun run server/keys.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.57.4",
+    "postgres": "3.4.7"
+  }
+}
