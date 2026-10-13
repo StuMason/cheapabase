@@ -1,0 +1,17 @@
+<p id="hello"><%= @hello %></p>
+
+<%= form_with url: docs_path do |f| %>
+  <%= f.text_field :title, id: "new-doc-title", placeholder: "New doc title" %>
+  <button id="create-doc" type="submit">Create doc</button>
+<% end %>
+
+<h2>Your docs</h2>
+<% if @docs.empty? %>
+  <p class="muted">No docs yet.</p>
+<% else %>
+  <ul>
+    <% @docs.each do |doc| %>
+      <li><%= link_to doc["title"], doc_path(doc["id"]), class: "doc-link" %></li>
+    <% end %>
+  </ul>
+<% end %>

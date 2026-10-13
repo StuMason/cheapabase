@@ -1,0 +1,9 @@
+<h1>Sign in</h1>
+<p class="muted">Any email works, no confirmation needed.</p>
+<%= form_with url: session_path do |f| %>
+  <%= f.email_field :email, id: "email", placeholder: "Email", required: true, autocomplete: "email" %>
+  <%= f.password_field :password, id: "password", placeholder: "Password", required: true, minlength: 6 %>
+  <button id="signin" type="submit" name="intent" value="signin">Sign in</button>
+  <button id="signup" type="submit" name="intent" value="signup">Sign up</button>
+<% end %>
+<p id="error"><%= flash[:alert] %></p>

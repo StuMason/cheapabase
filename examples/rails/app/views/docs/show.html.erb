@@ -1,0 +1,28 @@
+<h1 id="doc-title"><%= @doc["title"] %></h1>
+
+<%= form_with url: doc_path(@doc["id"]), method: :patch do |f| %>
+  <%= f.text_area :content, id: "content", value: @doc["content"] %>
+  <button id="save" type="submit">Save</button>
+  <span id="status" class="muted"><%= flash[:notice] %></span>
+<% end %>
+
+<%# Live updates: subscribe to this row with the user's own JWT, RLS decides what they get. %>
+<script type="module">
+  import { RealtimeClient } from <%= raw "#{Cheapabase.url}/realtime.js".to_json %>;
+
+  const cfg = <%= raw({ url: Cheapabase.url, token: access_token, id: @doc["id"] }.to_json) %>;
+  const content = document.getElementById("content");
+  const title = document.getElementById("doc-title");
+  const status = document.getElementById("status");
+  let dirty = false;
+  content.addEventListener("input", () => { dirty = true; status.textContent = "Unsaved changes"; });
+
+  const rt = new RealtimeClient(cfg.url, () => cfg.token);
+  await rt.on("docs", { event: "*", filter: `id=eq.${cfg.id}` }, (change) => {
+    if (!change.new) return;
+    title.textContent = change.new.title;
+    if (dirty) return; // don't clobber unsaved edits
+    content.value = change.new.content;
+    status.textContent = "Updated live";
+  });
+</script>
