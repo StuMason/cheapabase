@@ -141,7 +141,9 @@ are removed. `client/realtime.js` applies the diffs and still calls `onPresence(
 - Filters support `eq` only.
 - Inbound guards (env vars): `REALTIME_MAX_MSGS_PER_SEC` (default 60 per socket, 2x burst; extra
   messages are dropped with one error), `REALTIME_MAX_PAYLOAD` (64KB), `REALTIME_MAX_CHANNEL_MEMBERS`
-  (2000). `REALTIME_COMPRESS=true` turns on per-message deflate.
+  (2000). `REALTIME_COMPRESS=true` turns on per-message deflate. Browsers and the `ws` package read
+  compressed frames fine; Node's built-in `WebSocket` (Node 22 and 24) receives published frames as
+  empty strings, so use `ws` for Node clients when compression is on.
 - One RLS read per distinct user per change. Fine for hundreds of listeners on a table, not for tens of thousands.
 - Broadcast and presence are per instance. Run one instance, or put a shared pub/sub in front if you scale out.
 - **Bun as a realtime client:** Bun's built-in WebSocket client sometimes drops the connection with

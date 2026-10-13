@@ -2,6 +2,9 @@
 //   node scripts/swarm.mjs <url> [bots=100] [seconds=60] [rampSeconds=20]
 // Every bot is labelled bot:true in presence, so the page shows it as a bot.
 // Prints a JSON summary: how many connected, frames each bot received, bytes in, lag.
+// Uses the `ws` package (npm i --no-save ws): Node's built-in WebSocket can't inflate Bun's
+// compressed published frames and hands back empty strings when REALTIME_COMPRESS=true.
+import WebSocket from "ws";
 const [url = "http://localhost:8000", nArg = "100", secArg = "60", rampArg = "20"] = process.argv.slice(2);
 const N = Number(nArg);
 const SECONDS = Number(secArg);
@@ -21,15 +24,16 @@ function bot(i) {
     ws.send(JSON.stringify({ type: "join", ref: "j", channel: "cursors", presence: { n: `Bot ${String(i).padStart(4, "0")}`, bot: true } }));
   };
   ws.onmessage = (e) => {
-    stats.bytes_in += e.data.length;
-    if (e.data.startsWith('{"type":"states"')) {
+    const data = String(e.data);
+    stats.bytes_in += data.length;
+    if (data.startsWith('{"type":"states"')) {
       stats.frames++;
       const now = Date.now();
       if (b.last && now - t0 > (RAMP + 5) * 1000) stats.max_gap_ms = Math.max(stats.max_gap_ms, now - b.last);
       b.last = now;
       return;
     }
-    const m = JSON.parse(e.data);
+    const m = JSON.parse(data);
     if (m.type === "joined") stats.joined++;
     if (m.type === "error") (m.message.startsWith("rate limited") ? stats.rate_limited++ : stats.errors++);
   };
