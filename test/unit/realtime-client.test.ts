@@ -120,3 +120,28 @@ test("broadcast and presence are routed to the channel", async () => {
   expect(s.received.find((m) => m.type === "broadcast")).toMatchObject({ channel: "room:2", event: "cursor", payload: { x: 2 } });
   rt.close();
 });
+
+test("presence diffs update the roster, states reach onStates", async () => {
+  const s = fakeServer((ws, m) => {
+    if (m.type === "join") {
+      ws.send(JSON.stringify({ type: "joined", ref: m.ref, channel: m.channel }));
+      ws.send(JSON.stringify({ type: "presence", channel: m.channel, users: [{ key: "a", name: "ada" }] }));
+      ws.send(JSON.stringify({ type: "presence_diff", channel: m.channel, joins: [{ key: "b", name: "bob" }], leaves: [] }));
+      ws.send(JSON.stringify({ type: "presence_diff", channel: m.channel, joins: [{ key: "a", name: "ada 2" }], leaves: [] }));
+      ws.send(JSON.stringify({ type: "presence_diff", channel: m.channel, joins: [], leaves: ["b"] }));
+      ws.send(JSON.stringify({ type: "states", channel: m.channel, states: [["a", { x: 1, y: 2 }]] }));
+    }
+  });
+  const rt = new RealtimeClient(s.url, () => "tok");
+  const rosters: any[] = [];
+  const frames: any[] = [];
+  const room = rt.channel("room:3").onPresence((u: any) => rosters.push(u)).onStates((st: any) => frames.push(st));
+  await room.join();
+  await until(() => frames.length === 1 && rosters.length === 4);
+  expect(rosters.map((r) => r.map((u: any) => u.name).join(","))).toEqual(["ada", "ada,bob", "bob,ada 2", "ada 2"]);
+  expect(frames[0]).toEqual([["a", { x: 1, y: 2 }]]);
+  room.setState({ x: 3 });
+  await until(() => s.received.some((m) => m.type === "state"));
+  expect(s.received.find((m) => m.type === "state")).toEqual({ type: "state", channel: "room:3", payload: { x: 3 } });
+  rt.close();
+});

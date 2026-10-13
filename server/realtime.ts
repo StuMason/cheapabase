@@ -7,9 +7,13 @@
 //      decides who receives what. Deletes only carry the primary key.
 //   2. Channels: broadcast messages and presence between clients. Joining is gated by
 //      the SQL function realtime.can_join(channel), which also runs as the user.
+//      Fan-out uses Bun's native pub/sub (one serialization per message, not per peer).
+//      Presence goes out as diffs (the joiner gets the full roster, everyone else one entry),
+//      and `state` messages keep only each client's latest value and flush once per tick,
+//      so fast-changing data like cursors costs one frame per tick, not one per move.
 //
 // The wire protocol is plain JSON, documented in docs/realtime.md.
-import type { ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import { asUser, sql } from "./db";
 import { config } from "./config";
 import { verify, type Claims } from "./jwt";
@@ -21,40 +25,104 @@ export type SocketData = {
   subs: Map<string, Sub>;
   channels: Map<string, Record<string, unknown>>;
   key: string;
+  /** Token bucket for the inbound rate limit. */
+  budget: number;
+  refilled: number;
+  warned: boolean;
 };
 type WS = ServerWebSocket<SocketData>;
 
 const sockets = new Set<WS>();
 const channels = new Map<string, Set<WS>>();
+// channel -> socket key -> latest state payload not yet flushed
+const dirty = new Map<string, Map<string, unknown>>();
+let server: Server<SocketData> | null = null;
+
+export const limits = {
+  /** Inbound messages per second per socket (burst = 2x). Extra messages are dropped. */
+  msgsPerSec: Number(process.env.REALTIME_MAX_MSGS_PER_SEC ?? 60),
+  /** Largest inbound message in bytes; bigger ones close the socket. */
+  maxPayload: Number(process.env.REALTIME_MAX_PAYLOAD ?? 64 * 1024),
+  /** Most sockets one channel can hold. */
+  channelMembers: Number(process.env.REALTIME_MAX_CHANNEL_MEMBERS ?? 2000),
+  /** How often coalesced `state` messages are flushed, in ms. */
+  tickMs: Number(process.env.REALTIME_TICK_MS ?? 100),
+};
+
+const counters = { msgsIn: 0, msgsOut: 0, bytesOut: 0, dropped: 0, started: Date.now() };
 
 function send(ws: WS, msg: unknown) {
-  ws.send(JSON.stringify(msg));
+  const out = JSON.stringify(msg);
+  counters.msgsOut++;
+  counters.bytesOut += out.length;
+  ws.send(out);
+}
+
+const topic = (channel: string) => `ch:${channel}`;
+
+/** Send to every member of a channel, optionally skipping one socket. Serializes once. */
+function publish(channel: string, msg: unknown, except?: WS) {
+  const out = JSON.stringify(msg);
+  const n = (channels.get(channel)?.size ?? 0) - (except ? 1 : 0);
+  if (n <= 0) return;
+  counters.msgsOut += n;
+  counters.bytesOut += out.length * n;
+  if (except) except.publish(topic(channel), out);
+  else server!.publish(topic(channel), out);
+}
+
+/** Short socket keys keep presence and state frames small. Unique per process. */
+const boot = Math.random().toString(36).slice(2, 5);
+let nextKey = 0;
+export function newKey() {
+  return `${boot}${(nextKey++).toString(36)}`;
+}
+
+/** Token bucket: refill msgsPerSec per second up to 2x burst. */
+export function allow(d: Pick<SocketData, "budget" | "refilled">, now = Date.now(), rate = limits.msgsPerSec) {
+  d.budget = Math.min(rate * 2, d.budget + ((now - d.refilled) / 1000) * rate);
+  d.refilled = now;
+  if (d.budget < 1) return false;
+  d.budget -= 1;
+  return true;
 }
 
 function claimsKey(c: Claims) {
   return `${c.role ?? "anon"}:${c.sub ?? ""}`;
 }
 
-function presenceList(channel: string) {
-  return [...(channels.get(channel) ?? [])].map((ws) => ({
+function presenceEntry(ws: WS, channel: string) {
+  return {
     key: ws.data.key,
     user_id: ws.data.claims.sub ?? null,
     email: ws.data.claims.email ?? null,
     ...ws.data.channels.get(channel),
-  }));
+  };
 }
 
-function publishPresence(channel: string) {
-  const users = presenceList(channel);
-  for (const ws of channels.get(channel) ?? []) send(ws, { type: "presence", channel, users });
+function presenceList(channel: string) {
+  return [...(channels.get(channel) ?? [])].map((ws) => presenceEntry(ws, channel));
 }
 
 function leave(ws: WS, channel: string) {
   if (!ws.data.channels.delete(channel)) return;
+  ws.unsubscribe(topic(channel));
+  dirty.get(channel)?.delete(ws.data.key);
   const set = channels.get(channel);
   set?.delete(ws);
-  if (set?.size === 0) channels.delete(channel);
-  else publishPresence(channel);
+  if (set?.size === 0) {
+    channels.delete(channel);
+    dirty.delete(channel);
+  } else publish(channel, { type: "presence_diff", channel, joins: [], leaves: [ws.data.key] });
+}
+
+/** Flush coalesced state: one frame per channel per tick, holding only what changed. */
+export function flushStates() {
+  for (const [channel, states] of dirty) {
+    if (!states.size) continue;
+    publish(channel, { type: "states", channel, states: [...states] });
+    states.clear();
+  }
 }
 
 export async function upgradeData(req: Request): Promise<SocketData | null> {
@@ -62,16 +130,30 @@ export async function upgradeData(req: Request): Promise<SocketData | null> {
   const token = url.searchParams.get("token") ?? url.searchParams.get("apikey");
   const claims = token ? await verify(token, config.jwtSecret) : null;
   if (!claims) return null;
-  return { claims, subs: new Map(), channels: new Map(), key: crypto.randomUUID() };
+  return { claims, subs: new Map(), channels: new Map(), key: newKey(), budget: limits.msgsPerSec * 2, refilled: Date.now(), warned: false };
 }
 
 export const websocket = {
+  maxPayloadLength: limits.maxPayload,
+  // Trades CPU for bandwidth; worth it when frames are big and repetitive (cursors).
+  perMessageDeflate: process.env.REALTIME_COMPRESS === "true",
+
   open(ws: WS) {
     sockets.add(ws);
     send(ws, { type: "ready", key: ws.data.key, user: { id: ws.data.claims.sub ?? null, role: ws.data.claims.role } });
   },
 
   async message(ws: WS, raw: string | Buffer) {
+    counters.msgsIn++;
+    if (!allow(ws.data)) {
+      counters.dropped++;
+      if (!ws.data.warned) {
+        ws.data.warned = true;
+        send(ws, { type: "error", message: `rate limited: over ${limits.msgsPerSec} messages per second, extra messages are dropped` });
+      }
+      return;
+    }
+    ws.data.warned = false;
     let msg: any;
     try {
       msg = JSON.parse(String(raw));
@@ -122,17 +204,32 @@ export const websocket = {
           console.error("[realtime] can_join failed", e);
         }
         if (!allowed) return send(ws, { type: "error", ref, channel, message: "not allowed to join channel" });
-        ws.data.channels.set(channel, msg.presence && typeof msg.presence === "object" ? msg.presence : {});
         if (!channels.has(channel)) channels.set(channel, new Set());
-        channels.get(channel)!.add(ws);
+        const set = channels.get(channel)!;
+        if (!set.has(ws) && set.size >= limits.channelMembers) {
+          return send(ws, { type: "error", ref, channel, message: "channel is full" });
+        }
+        ws.data.channels.set(channel, msg.presence && typeof msg.presence === "object" ? msg.presence : {});
+        set.add(ws);
+        ws.subscribe(topic(channel));
         send(ws, { type: "joined", ref, channel });
-        return publishPresence(channel);
+        // Full roster to the joiner, one entry to everyone else.
+        send(ws, { type: "presence", channel, users: presenceList(channel) });
+        return publish(channel, { type: "presence_diff", channel, joins: [presenceEntry(ws, channel)], leaves: [] }, ws);
       }
 
       case "track": {
         if (!ws.data.channels.has(msg.channel)) return send(ws, { type: "error", ref, message: "join first" });
-        ws.data.channels.set(msg.channel, msg.presence ?? {});
-        return publishPresence(msg.channel);
+        ws.data.channels.set(msg.channel, msg.presence && typeof msg.presence === "object" ? msg.presence : {});
+        return publish(msg.channel, { type: "presence_diff", channel: msg.channel, joins: [presenceEntry(ws, msg.channel)], leaves: [] });
+      }
+
+      case "state": {
+        // Latest value wins; flushed to the whole channel (sender included) every tick.
+        if (!ws.data.channels.has(msg.channel)) return send(ws, { type: "error", ref, message: "join first" });
+        if (!dirty.has(msg.channel)) dirty.set(msg.channel, new Map());
+        dirty.get(msg.channel)!.set(ws.data.key, msg.payload ?? null);
+        return;
       }
 
       case "leave":
@@ -140,17 +237,15 @@ export const websocket = {
         return send(ws, { type: "ok", ref });
 
       case "broadcast": {
-        const set = channels.get(msg.channel);
-        if (!set?.has(ws)) return send(ws, { type: "error", ref, message: "join first" });
-        const out = JSON.stringify({
+        if (!channels.get(msg.channel)?.has(ws)) return send(ws, { type: "error", ref, message: "join first" });
+        const out = {
           type: "broadcast",
           channel: msg.channel,
           event: msg.event,
           payload: msg.payload,
           from: { key: ws.data.key, user_id: ws.data.claims.sub ?? null, email: ws.data.claims.email ?? null },
-        });
-        for (const peer of set) if (peer !== ws || msg.self) peer.send(out);
-        return;
+        };
+        return publish(msg.channel, out, msg.self ? undefined : ws);
       }
 
       default:
@@ -218,6 +313,12 @@ async function fanOut(change: Change) {
   }
 }
 
+/** Hand realtime the running server so it can publish to channel topics. */
+export function attach(srv: Server<SocketData>) {
+  server = srv;
+  setInterval(flushStates, limits.tickMs);
+}
+
 export async function startRealtime() {
   await sql.listen("cheapabase_realtime", (payload) => {
     try {
@@ -229,5 +330,17 @@ export async function startRealtime() {
 }
 
 export function stats() {
-  return { connections: sockets.size, channels: channels.size };
+  return {
+    connections: sockets.size,
+    channels: channels.size,
+    msgs_in: counters.msgsIn,
+    msgs_out: counters.msgsOut,
+    bytes_out: counters.bytesOut,
+    dropped: counters.dropped,
+    since: new Date(counters.started).toISOString(),
+  };
+}
+
+export function channelSize(channel: string) {
+  return channels.get(channel)?.size ?? 0;
 }

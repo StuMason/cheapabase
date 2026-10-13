@@ -69,6 +69,21 @@ room.leave();
 
 Broadcast messages go straight to other clients in the channel. They are not stored.
 
+### State: latest value only, batched per tick
+
+For data that changes many times a second and where only the newest value matters (cursors,
+positions, "is typing"), use state instead of broadcast:
+
+```js
+room.setState([x, y]);                       // as often as you like
+room.onStates((states) => {                  // once per server tick, only what changed
+  for (const [key, value] of states) moveCursor(key, value); // key matches presence entries
+});
+```
+
+The server keeps one value per client and flushes every `REALTIME_TICK_MS` (default 100ms), so a
+room of N movers costs N frames a second per client, not N x moves. Your own state comes back to you too.
+
 ### Who can join a channel
 
 Joining runs `realtime.can_join(channel)` as the user. The default lets any signed-in user join any channel. Override it in a migration, it's just SQL so it can use your RLS helpers:
@@ -91,15 +106,16 @@ The docs example (`db/migrations/001_docs.sql`) does exactly this so only people
 
 If you want a client in another language, it's plain JSON over a websocket.
 
-Connect to `wss://<host>/realtime/v1?token=<jwt or anon key>`. The server replies `{"type":"ready","key":"<connection id>","user":{...}}`.
+Connect to `wss://<host>/realtime/v1?token=<jwt or anon key>`. The server replies `{"type":"ready","key":"<connection id>","user":{...}}`. Keys are short and unique per server process.
 
 | Client sends | Server replies |
 |---|---|
 | `{"type":"subscribe","ref":"s1","table":"todos","schema":"public","event":"*","filter":"id=eq.5"}` | `{"type":"subscribed","ref":"s1"}` |
 | `{"type":"unsubscribe","ref":"s1"}` | `{"type":"ok","ref":"s1"}` |
 | `{"type":"join","ref":"j1","channel":"room:1","presence":{...}}` | `{"type":"joined","ref":"j1","channel":"room:1"}` |
-| `{"type":"track","channel":"room:1","presence":{...}}` | presence update to the channel |
+| `{"type":"track","channel":"room:1","presence":{...}}` | `presence_diff` to the channel |
 | `{"type":"broadcast","channel":"room:1","event":"cursor","payload":{...},"self":false}` | nothing to you, `broadcast` to the others |
+| `{"type":"state","channel":"room:1","payload":...}` | nothing now; the next `states` frame carries it |
 | `{"type":"leave","ref":"l1","channel":"room:1"}` | `{"type":"ok","ref":"l1"}` |
 | `{"type":"auth","ref":"a1","token":"<new jwt>"}` | `{"type":"ok","ref":"a1"}` |
 | `{"type":"ping","ref":"p1"}` | `{"type":"pong","ref":"p1"}` |
@@ -111,12 +127,21 @@ Server pushes:
 {"type":"change","ref":"s1","event":"DELETE","schema":"public","table":"todos","old":{"id":5}}
 {"type":"broadcast","channel":"room:1","event":"cursor","payload":{...},"from":{"key":"...","user_id":"...","email":"..."}}
 {"type":"presence","channel":"room:1","users":[{"key":"...","user_id":"...","email":"...", "...": "your presence fields"}]}
+{"type":"presence_diff","channel":"room:1","joins":[{"key":"...", "...": "..."}],"leaves":["<key>"]}
+{"type":"states","channel":"room:1","states":[["<key>", <payload>], ...]}
 {"type":"error","ref":"j1","message":"not allowed to join channel"}
 ```
+
+`presence` (the full roster) is sent only to the client that just joined. After that everyone gets
+`presence_diff`: entries in `joins` replace any existing entry with the same key, keys in `leaves`
+are removed. `client/realtime.js` applies the diffs and still calls `onPresence(users)` with the full list.
 
 ## Limits
 
 - Filters support `eq` only.
+- Inbound guards (env vars): `REALTIME_MAX_MSGS_PER_SEC` (default 60 per socket, 2x burst; extra
+  messages are dropped with one error), `REALTIME_MAX_PAYLOAD` (64KB), `REALTIME_MAX_CHANNEL_MEMBERS`
+  (2000). `REALTIME_COMPRESS=true` turns on per-message deflate.
 - One RLS read per distinct user per change. Fine for hundreds of listeners on a table, not for tens of thousands.
 - Broadcast and presence are per instance. Run one instance, or put a shared pub/sub in front if you scale out.
 - **Bun as a realtime client:** Bun's built-in WebSocket client sometimes drops the connection with

@@ -17,6 +17,7 @@ COPY db ./db
 COPY functions ./functions
 COPY client ./client
 COPY examples/vanilla ./examples/vanilla
+COPY examples/cursors ./examples/cursors
 
 ENV PORT=8000
 EXPOSE 8000

@@ -5,6 +5,7 @@
 //   const room = rt.channel("room:1", { presence: { name: "Ada" } })
 //   room.on("cursor", (payload, from) => ...); room.onPresence((users) => ...)
 //   await room.join(); room.send("cursor", { x: 1, y: 2 })
+//   room.setState({ x: 1, y: 2 }); room.onStates((states) => ...)  // latest-value, batched per server tick
 
 export class RealtimeClient {
   constructor(url, getToken) {
@@ -71,6 +72,8 @@ export class RealtimeClient {
     if (msg.type === "change") this.subs.get(msg.ref)?.cb(msg);
     else if (msg.type === "broadcast") this.channels.get(msg.channel)?.emit(msg.event, msg.payload, msg.from);
     else if (msg.type === "presence") this.channels.get(msg.channel)?.presence(msg.users);
+    else if (msg.type === "presence_diff") this.channels.get(msg.channel)?.presenceDiff(msg.joins, msg.leaves);
+    else if (msg.type === "states") this.channels.get(msg.channel)?.states(msg.states);
     else if (msg.type === "error" && !p) console.warn("[realtime]", msg.message);
   }
 
@@ -117,6 +120,8 @@ class Channel {
     this.meta = presence ?? {};
     this.handlers = new Map();
     this.presenceHandlers = new Set();
+    this.stateHandlers = new Set();
+    this.users = [];
     this.joined = false;
   }
   async join() {
@@ -146,6 +151,15 @@ class Channel {
     this.meta = meta;
     this.client.raw({ type: "track", channel: this.name, presence: meta });
   }
+  /** Latest-value state (e.g. a cursor). The server keeps only the newest and flushes once per tick. */
+  setState(payload) {
+    this.client.raw({ type: "state", channel: this.name, payload }, { queue: false });
+  }
+  /** cb(states): array of [key, payload] that changed this tick. key matches presence entries. */
+  onStates(cb) {
+    this.stateHandlers.add(cb);
+    return this;
+  }
   send(event, payload, { self = false } = {}) {
     this.client.raw({ type: "broadcast", channel: this.name, event, payload, self });
   }
@@ -165,5 +179,12 @@ class Channel {
   presence(users) {
     this.users = users;
     for (const cb of this.presenceHandlers) cb(users);
+  }
+  presenceDiff(joins = [], leaves = []) {
+    const gone = new Set([...leaves, ...joins.map((u) => u.key)]);
+    this.presence([...this.users.filter((u) => !gone.has(u.key)), ...joins]);
+  }
+  states(states) {
+    for (const cb of this.stateHandlers) cb(states);
   }
 }
